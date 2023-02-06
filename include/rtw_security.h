@@ -25,6 +25,7 @@
 #define _SMS4_				0x06
 #define _WEP_WPA_MIXED_		0x07 /* WEP + WPA */
 #define _BIP_				0x8
+#define _SAE_       0x9
 
 /* 802.11W use wrong key */
 #define IEEE80211W_RIGHT_KEY	0x0
@@ -40,10 +41,14 @@ const char *security_type_str(u8 value);
 
 #define _WPA_IE_ID_	0xdd
 #define _WPA2_IE_ID_	0x30
+#define _WPA3_IE_ID_	0x6f
 
 #define SHA256_MAC_LEN 32
 #define AES_BLOCK_SIZE 16
 #define AES_PRIV_SIZE (4 * 44)
+#define AES_PRIV_SIZE_128 (4 * 10)
+#define AES_PRIV_SIZE_192 (4 * 12)
+#define AES_PRIV_SIZE_256 (4 * 14)
 
 #define RTW_KEK_LEN 16
 #define RTW_KCK_LEN 16
@@ -57,6 +62,7 @@ typedef enum {
 	ENCRYP_PROTOCOL_WEP,       /* WEP */
 	ENCRYP_PROTOCOL_WPA,       /* WPA */
 	ENCRYP_PROTOCOL_WPA2,      /* WPA2 */
+  ENCRYP_PROTOCOL_WPA3,      /* WPA3 */
 	ENCRYP_PROTOCOL_WAPI,      /* WAPI: Not support in this version */
 	ENCRYP_PROTOCOL_MAX
 } ENCRYP_PROTOCOL_E;
@@ -68,6 +74,10 @@ typedef enum {
 
 #ifndef Ndis802_11AuthModeWPA2PSK
 #define Ndis802_11AuthModeWPA2PSK (Ndis802_11AuthModeWPANone + 2)
+#endif
+
+#ifndef Ndis802_11AuthModeWPA3SAE
+#define Ndis802_11AuthModeWPA3SAE (Ndis802_11AuthModeWPANone + 3)
 #endif
 
 union pn48	{
@@ -119,6 +129,11 @@ typedef struct _RT_PMKID_LIST {
 	u16						ssid_length;
 } RT_PMKID_LIST, *PRT_PMKID_LIST;
 
+typedef struct _RT_PMKID_LIST_CACHE {
+  u32						Index;
+  u32						BssidInfoCount;
+  RT_PMKID_LIST			BssidInfo[1];
+} RT_PMKID_LIST_CACHE, *PRT_PMKID_LIST_CACHE;
 
 struct security_priv {
 	u32	  dot11AuthAlgrthm;		/* 802.11 auth, could be open, shared, 8021x and authswitch */
@@ -153,6 +168,15 @@ struct security_priv {
 	unsigned int wpa2_group_cipher;
 	unsigned int wpa_pairwise_cipher;
 	unsigned int wpa2_pairwise_cipher;
+  unsigned int wpa_key_mgmt;
+  unsigned int wpa2_key_mgmt;
+  unsigned int wpa_version;
+  unsigned int rsnxe_len; // needed for RSNXE IE (802.11w)
+  u8 rsnxe[256];
+  unsigned int wpa3_pairwise_cipher;
+  unsigned int wpa3_key_mgmt;
+  unsigned int wpa3_version;
+#endif
 	u8 mfp_opt;
 #endif
 #ifdef CONFIG_CONCURRENT_MODE
@@ -211,6 +235,14 @@ struct security_priv {
 	u8	btkip_wait_report;
 	systime btkip_countermeasure_time;
 
+  /* For WPA-3 SAE */
+  u8 sae_data[SAE_DATA_MAX_LEN];
+  u8 sae_data_len;
+
+  /* for WPS2DOTX test item - WPS Session Overlap */
+  u8 bWPSOverLap;
+};
+
 	/* --------------------------------------------------------------------------- */
 	/* For WPA2 Pre-Authentication. */
 	/* --------------------------------------------------------------------------- */
@@ -245,6 +277,11 @@ struct security_priv {
 	u64 aes_sw_dec_cnt_bc;
 	u64 aes_sw_dec_cnt_mc;
 	u64 aes_sw_dec_cnt_uc;
+
+  u64 sw_sec_cnt_bc;
+  u64 sw_sec_cnt_mc;
+  u64 sw_sec_cnt_uc;
+  u64 sw_sec_cnt_bc_err;
 #endif /* DBG_SW_SEC_CNT */
 };
 
@@ -271,10 +308,24 @@ struct security_priv {
 		case dot11AuthAlgrthm_WAPI:\
 			encry_algo = (u8)psecuritypriv->dot11PrivacyAlgrthm;\
 			break;\
+    case dot11AuthAlgrthm_SAE:\
+      encry_algo = (u8)psecuritypriv->dot11PrivacyAlgrthm;\
+      break;\
 		} \
 	} while (0)
 
 #define _AES_IV_LEN_ 8
+#define _AES_ICV_LEN_ 8
+
+#define _TKIP_IV_LEN_ 8
+#define _TKIP_ICV_LEN_ 4
+
+#define _WEP40_IV_LEN_ 4
+#define _WEP40_ICV_LEN_ 4
+
+#define _WEP104_IV_LEN_ 4
+#define _WEP104_ICV_LEN_ 4
+
 
 #define SET_ICE_IV_LEN(iv_len, icv_len, encrypt)\
 	do {\
@@ -296,6 +347,10 @@ struct security_priv {
 			iv_len = 18;\
 			icv_len = 16;\
 			break;\
+    case _SAE_:\
+      iv_len = 0;\
+      icv_len = 0;\
+      break;\
 		default:\
 			iv_len = 0;\
 			icv_len = 0;\
